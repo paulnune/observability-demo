@@ -1,115 +1,129 @@
 package main
 
 import (
-    "context"
-    "fmt"
-    "log"
-    "math/rand"
-    "net/http"
-    "os"
-    "sync/atomic"
-    "time"
+	"context"
+	"fmt"
+	"io"
+	"log"
+	"math/rand"
+	"net/http"
+	"os"
+	"sync/atomic"
+	"time"
 
-    "go.opentelemetry.io/otel"
-    "go.opentelemetry.io/otel/attribute"
-    "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-    "go.opentelemetry.io/otel/sdk/resource"
-    sdktrace "go.opentelemetry.io/otel/sdk/trace"
-    semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
 
 var (
-    totalOrdersProcessed    int64 // Total de pedidos processados com sucesso
-    totalErrors             int64 // Total de pedidos que falharam
-    totalProcessingTime     int64 // Tempo total de processamento de pedidos
-    totalPaymentFailures    int64 // Total de falhas de pagamento
-    totalOutOfStockFailures int64 // Total de falhas por falta de estoque
+	totalOrdersProcessed    int64
+	totalErrors             int64
+	totalProcessingTime     int64
+	totalPaymentFailures    int64
+	totalOutOfStockFailures int64
+
+	serviceName string
 )
 
-func initTracer() func(context.Context) error {
-    ctx := context.Background()
+// initTracer configura OTEL para enviar *traces* via OTLP (Collector).
+func initTracer(ctx context.Context) (func(context.Context) error, error) {
+	// Ex.: "http://otel-collector:4318"  (padrão)
+	otlpEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	if otlpEndpoint == "" {
+		otlpEndpoint = "http://otel-collector:4318"
+	}
 
-    exp, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpoint("otel-collector:4318"), otlptracehttp.WithInsecure())
-    if err != nil {
-        log.Fatalf("Erro ao criar exportador: %v", err)
-    }
+	exp, err := otlptracehttp.New(ctx,
+		otlptracehttp.WithEndpoint(otlpEndpoint),
+		otlptracehttp.WithInsecure(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao criar exportador OTLP: %w", err)
+	}
 
-    tp := sdktrace.NewTracerProvider(
-        sdktrace.WithBatcher(exp),
-        sdktrace.WithResource(resource.NewWithAttributes(
-            semconv.SchemaURL,
-            semconv.ServiceName("modern-app"),
-        )),
-    )
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exp),
+		sdktrace.WithResource(resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName(serviceName),
+		)),
+	)
 
-    otel.SetTracerProvider(tp)
-    return tp.Shutdown
+	otel.SetTracerProvider(tp)
+	return tp.Shutdown, nil
 }
 
 func handleOrder(w http.ResponseWriter, r *http.Request) {
-    ctx := r.Context()
-    tr := otel.Tracer("modern-app")
-    _, span := tr.Start(ctx, "OrderProcessing")
-    defer span.End()
+	ctx := r.Context()
+	tr := otel.Tracer(serviceName)
+	_, span := tr.Start(ctx, "OrderProcessing")
+	defer span.End()
 
-    // Gera um ID e valor aleatório para o pedido
-    orderID := rand.Intn(1000000)
-    amount := rand.Intn(100) + 1
-    delay := time.Duration(rand.Intn(1000)) * time.Millisecond
-    time.Sleep(delay)
+	orderID := rand.Intn(1_000_000)
+	amount := rand.Intn(100) + 1
+	delay := time.Duration(rand.Intn(1000)) * time.Millisecond
+	time.Sleep(delay)
 
-    // Simula erro de falta de estoque em 10% dos pedidos
-    if rand.Float32() < 0.1 {
-        atomic.AddInt64(&totalErrors, 1)
-        atomic.AddInt64(&totalOutOfStockFailures, 1)
-        log.Printf("[WARN] Order %d failed: Out of stock", orderID)
-        span.SetAttributes(attribute.String("order.status", "out_of_stock"))
-        http.Error(w, "Out of stock", http.StatusConflict)
-        return
-    }
+	// Captura o contexto do span para correlação log↔trace
+	sc := span.SpanContext()
+	traceID := sc.TraceID().String()
+	spanID := sc.SpanID().String()
 
-    // Simula erro de pagamento em 15% dos pedidos
-    if rand.Float32() < 0.15 {
-        atomic.AddInt64(&totalErrors, 1)
-        atomic.AddInt64(&totalPaymentFailures, 1)
-        log.Printf("[ERROR] Order %d failed: Payment declined", orderID)
-        span.SetAttributes(attribute.String("order.status", "payment_failed"))
-        http.Error(w, "Payment declined", http.StatusPaymentRequired)
-        return
-    }
+	// Falha: out of stock (10%)
+	if rand.Float32() < 0.10 {
+		atomic.AddInt64(&totalErrors, 1)
+		atomic.AddInt64(&totalOutOfStockFailures, 1)
+		span.SetAttributes(attribute.String("order.status", "out_of_stock"))
+		log.Printf("[WARN] Order %d failed: Out of stock trace_id=%s span_id=%s service.name=%s",
+			orderID, traceID, spanID, serviceName)
+		http.Error(w, "Out of stock", http.StatusConflict)
+		return
+	}
 
-    // Atualiza métricas de sucesso
-    atomic.AddInt64(&totalOrdersProcessed, 1)
-    atomic.AddInt64(&totalProcessingTime, int64(delay))
+	// Falha: payment declined (15%)
+	if rand.Float32() < 0.15 {
+		atomic.AddInt64(&totalErrors, 1)
+		atomic.AddInt64(&totalPaymentFailures, 1)
+		span.SetAttributes(attribute.String("order.status", "payment_failed"))
+		log.Printf("[ERROR] Order %d failed: Payment declined trace_id=%s span_id=%s service.name=%s",
+			orderID, traceID, spanID, serviceName)
+		http.Error(w, "Payment declined", http.StatusPaymentRequired)
+		return
+	}
 
-    // Adiciona atributos ao span
-    span.SetAttributes(
-        attribute.Int("order.id", orderID),
-        attribute.Int("order.amount", amount),
-        attribute.String("order.currency", "BRL"),
-        attribute.String("order.status", "success"),
-    )
+	// Sucesso
+	atomic.AddInt64(&totalOrdersProcessed, 1)
+	atomic.AddInt64(&totalProcessingTime, int64(delay))
 
-    // Gera log de sucesso
-    log.Printf("[INFO] Processed order %d: %d BRL", orderID, amount)
-    fmt.Fprintf(w, "Order %d processed: %d BRL\n", orderID, amount)
+	span.SetAttributes(
+		attribute.Int("order.id", orderID),
+		attribute.Int("order.amount", amount),
+		attribute.String("order.currency", "BRL"),
+		attribute.String("order.status", "success"),
+	)
+
+	log.Printf("[INFO] Processed order %d: %d BRL trace_id=%s span_id=%s service.name=%s",
+		orderID, amount, traceID, spanID, serviceName)
+	fmt.Fprintf(w, "Order %d processed: %d BRL\n", orderID, amount)
 }
 
 func handleMetrics(w http.ResponseWriter, r *http.Request) {
-    totalOrders := atomic.LoadInt64(&totalOrdersProcessed)
-    totalErr := atomic.LoadInt64(&totalErrors)
-    totalTime := atomic.LoadInt64(&totalProcessingTime)
-    paymentFailures := atomic.LoadInt64(&totalPaymentFailures)
-    outOfStockFailures := atomic.LoadInt64(&totalOutOfStockFailures)
+	totalOrders := atomic.LoadInt64(&totalOrdersProcessed)
+	totalErr := atomic.LoadInt64(&totalErrors)
+	totalTime := atomic.LoadInt64(&totalProcessingTime)
+	paymentFailures := atomic.LoadInt64(&totalPaymentFailures)
+	outOfStockFailures := atomic.LoadInt64(&totalOutOfStockFailures)
 
-    // Calcula o tempo médio de processamento
-    avgProcessingTime := float64(0)
-    if totalOrders > 0 {
-        avgProcessingTime = float64(totalTime) / float64(totalOrders)
-    }
+	avgProcessingTime := float64(0)
+	if totalOrders > 0 {
+		avgProcessingTime = float64(totalTime) / float64(totalOrders)
+	}
 
-    // Formata as métricas no formato Prometheus
-    metrics := fmt.Sprintf(`# HELP orders_processed_total Total number of orders processed
+	metrics := fmt.Sprintf(`# HELP orders_processed_total Total number of orders processed
 # TYPE orders_processed_total counter
 orders_processed_total %d
 
@@ -130,36 +144,72 @@ orders_out_of_stock_failures_total %d
 orders_avg_processing_time %.2f
 `, totalOrders, totalErr, paymentFailures, outOfStockFailures, avgProcessingTime)
 
-    w.Header().Set("Content-Type", "text/plain")
-    w.WriteHeader(http.StatusOK)
-    w.Write([]byte(metrics))
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(metrics))
 }
 
 func generatePeriodicLogs() {
-    ticker := time.NewTicker(1 * time.Minute)
-    defer ticker.Stop()
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
 
-    for range ticker.C {
-        totalOrders := atomic.LoadInt64(&totalOrdersProcessed)
-        totalErr := atomic.LoadInt64(&totalErrors)
-        paymentFailures := atomic.LoadInt64(&totalPaymentFailures)
-        outOfStockFailures := atomic.LoadInt64(&totalOutOfStockFailures)
-        log.Printf("[INFO] Periodic log: %d orders processed, %d errors (Payment Failures: %d, Out of Stock: %d)",
-            totalOrders, totalErr, paymentFailures, outOfStockFailures)
-    }
+	for range ticker.C {
+		totalOrders := atomic.LoadInt64(&totalOrdersProcessed)
+		totalErr := atomic.LoadInt64(&totalErrors)
+		paymentFailures := atomic.LoadInt64(&totalPaymentFailures)
+		outOfStockFailures := atomic.LoadInt64(&totalOutOfStockFailures)
+		// Periodic log informativo com service.name para facilitar filtros
+		log.Printf("[INFO] Periodic log: %d orders processed, %d errors (Payment Failures: %d, Out of Stock: %d) service.name=%s",
+			totalOrders, totalErr, paymentFailures, outOfStockFailures, serviceName)
+	}
 }
 
 func main() {
-    log.SetOutput(os.Stdout)
+	rand.Seed(time.Now().UnixNano())
 
-    shutdown := initTracer()
-    defer shutdown(context.Background())
+	// Config por ENV
+	serviceName = os.Getenv("SERVICE_NAME")
+	if serviceName == "" {
+		serviceName = "modern-app"
+	}
+	logPath := os.Getenv("LOG_PATH")
+	if logPath == "" {
+		logPath = "/var/log/modern-app/app.log"
+	}
 
-    go generatePeriodicLogs()
+	// Diretório + arquivo de log
+	_ = os.MkdirAll("/var/log/modern-app", 0o755)
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		log.Fatalf("Erro ao abrir arquivo de log: %v", err)
+	}
+	defer f.Close()
 
-    http.HandleFunc("/order", handleOrder)
-    http.HandleFunc("/metrics", handleMetrics)
+	// Log em stdout + arquivo (Fluent Bit taila o arquivo)
+	mw := io.MultiWriter(os.Stdout, f)
+	log.SetOutput(mw)
+	// Mantém o timestamp padrão do logger do Go (compatível com o parser regex sugerido)
 
-    log.Println("Modern app running on :8080")
-    log.Fatal(http.ListenAndServe(":8080", nil))
+	// OTEL (traces)
+	ctx := context.Background()
+	shutdown, err := initTracer(ctx)
+	if err != nil {
+		log.Fatalf("Erro ao inicializar OTEL: %v", err)
+	}
+	defer func() {
+		_ = shutdown(context.Background())
+	}()
+
+	// Handlers HTTP
+	http.HandleFunc("/order", handleOrder)
+	http.HandleFunc("/metrics", handleMetrics)
+
+	// Log inicial
+	log.Printf("[INFO] %s starting on :8080", serviceName)
+
+	// Logs periódicos
+	go generatePeriodicLogs()
+
+	// Servidor
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
