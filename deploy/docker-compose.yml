@@ -1,0 +1,74 @@
+services:
+  legacy-app:
+    container_name: legacy-app
+    build:
+      context: ../apps/legacy-app
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    volumes:
+      - legacy-app-logs:/var/log/legacy-app
+    networks:
+      - observability-net
+
+  modern-app:
+    container_name: modern-app
+    build:
+      context: ../apps/modern-app
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - modern-app-logs:/var/log/modern-app
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+    depends_on:
+      - otel-collector
+    networks:
+      - observability-net
+
+  fluentbit:
+    container_name: fluentbit
+    image: cr.fluentbit.io/fluent/fluent-bit:4.0.8
+    ports:
+      - "2020:2020"
+    volumes:
+      - ../agents/fluentbit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ../agents/fluentbit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - ../agents/fluentbit/normalize_severity.lua:/fluent-bit/etc/normalize_severity.lua:ro
+      - ../agents/fluentbit/classify_by_message.lua:/fluent-bit/etc/classify_by_message.lua:ro
+      - ../agents/fluentbit/to_dynatrace.lua:/fluent-bit/etc/to_dynatrace.lua:ro
+      - legacy-app-logs:/var/log/legacy-app
+      - modern-app-logs:/var/log/modern-app
+    environment:
+      - DT_ENV_URL=${DT_ENV_URL}
+      - DT_LOG_TOKEN=${DT_LOG_TOKEN}
+    depends_on:
+      - legacy-app
+      - modern-app
+    networks:
+      - observability-net
+
+  otel-collector:
+    container_name: otel-collector
+    image: otel/opentelemetry-collector-contrib:0.104.0
+    command: ["--config=/etc/otel/config.yaml"]
+    ports:
+      - "4317:4317" 
+      - "4318:4318" 
+      - "24224:24224" 
+    volumes:
+      - ../agents/otel-collector/config.yaml:/etc/otel/config.yaml:ro
+    environment:
+      - DT_API_TOKEN=${DYNATRACE_API_TOKEN}
+      - DT_ENVIRONMENT=${DYNATRACE_ENV_URL}
+    networks:
+      - observability-net
+
+volumes:
+  legacy-app-logs:
+  modern-app-logs:
+
+networks:
+  observability-net:
