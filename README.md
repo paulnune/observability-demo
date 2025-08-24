@@ -68,7 +68,7 @@ Pré-requisitos:
 
 ### 1. Clonar repositório
 ```bash
-git clone https://github.com/<seu-usuario>/observability-demo.git
+git clone https://github.com/paulnune/observability-demo
 cd observability-demo/deploy
 ```
 
