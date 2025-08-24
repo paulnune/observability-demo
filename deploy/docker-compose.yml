@@ -1,0 +1,69 @@
+services:
+  legacy-app:
+    container_name: legacy-app
+    build:
+      context: ../apps/legacy-app
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081" # Exemplo: Porta para servir logs ou API
+    volumes:
+      - legacy-app-logs:/var/log/legacy-app
+    networks:
+      - observability-net
+
+  modern-app:
+    container_name: modern-app
+    build:
+      context: ../apps/modern-app
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    networks:
+      - observability-net
+
+  vector:
+    container_name: vector
+    build:
+      context: ../agents/vector
+      dockerfile: Dockerfile
+    ports:
+      - "9000:9000" # Exemplo: Porta para entrada de logs via syslog
+    volumes:
+      - ../agents/vector/vector.toml:/etc/vector/vector.toml:ro
+      - legacy-app-logs:/var/log/legacy-app:ro
+    networks:
+      - observability-net
+
+  fluentbit:
+    container_name: fluentbit
+    image: fluent/fluent-bit:latest
+    ports:
+      - "2020:2020" # Exemplo: Porta para entrada de logs via HTTP
+    volumes:
+      - ../agents/fluentbit:/fluent-bit/etc:ro
+      - legacy-app-logs:/var/log/legacy-app
+    networks:
+      - observability-net
+
+  otel-collector:
+    container_name: otel-collector
+    image: otel/opentelemetry-collector:latest
+    command: ["--config=/etc/otel/config.yaml"]
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "8888:8888" # Prometheus metrics
+    volumes:
+      - ../agents/otel-collector/config.yaml:/etc/otel/config.yaml
+      - legacy-app-logs:/var/log/legacy-app:ro
+    networks:
+      - observability-net
+
+volumes:
+  legacy-app-logs:
+  vector-config:
+
+networks:
+  observability-net:

@@ -1,0 +1,26 @@
+[sources]
+# Coleta logs estruturados da aplicação moderna
+[sources.modern_app_logs]
+type = "file"
+include = ["/var/log/modern-app/*.log"]
+
+# Coleta logs não estruturados da aplicação legada
+[sources.legacy_app_logs]
+type = "file"
+include = ["/var/log/legacy-app/*.log"]
+
+[transforms.parse_legacy_logs]
+type = "remap"
+inputs = ["legacy_app_logs"]
+source = '''
+# Adiciona um campo "raw_message" para preservar o log original
+.raw_message = .message
+.level = "INFO" # Define um nível padrão para logs não estruturados
+.timestamp = now()
+'''
+
+[sinks.otel_collector]
+type = "otlp"
+inputs = ["modern_app_logs", "parse_legacy_logs"]
+endpoint = "http://otel-collector:4317"
+encoding.codec = "json"

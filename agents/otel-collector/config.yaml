@@ -1,0 +1,22 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+
+exporters:
+  debug: # Substitui o exportador logging
+    verbosity: detailed
+
+  otlp:
+    endpoint: "http://otel-collector:4317"
+
+processors:
+  batch:
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, otlp]
