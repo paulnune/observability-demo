@@ -58,67 +58,78 @@ Também é possível visualizar as versões em PDF exportadas, localizadas no di
 
 ---
 
-## Pré-requisitos:  
+## Pré-requisitos
 
-- Docker & Docker Compose
-- Conta no Dynatrace
-  - Variáveis de ambiente definidas no `.env` (Dynatrace tenant e token). 
+- **Docker & Docker Compose** **ou** **Podman** (+ `podman-docker` e **`podman-compose`**)  
+- Conta no **Dynatrace** com permissão para ingestão de logs  
+- **.env** com variáveis do Dynatrace (veja abaixo)
 
-## Como executar
-
-Renomear e preecher o arquivo `.env.example` para `.env` e incluir a URL e token do Dynatrace. 
-
-### Compatibilidade
-
-Esta demo foi executada em um ambiente **RHEL 10** utilizando **Podman** com o pacote **`podman-docker`** (que emula o CLI do Docker) e **`podman-compose`**.  
+> **Compatibilidade**  
+> Esta demo é compatível com **Docker + Docker Compose**. Nos testes, foi executada em **RHEL 10** utilizando **Podman 5.4.0** com o pacote **`podman-docker`** (emulando o CLI `docker`) e **`podman-compose`**.
 
 ---
 
-### 1. Clonar repositório
+## 🚀 Preparação rápida
+
+### 1) Clonar o repositório
 ```bash
 git clone https://github.com/paulnune/observability-demo
 cd observability-demo/deploy
 ```
 
-### 2. Configurar secrets
-Crie o arquivo `.env` com:
+### 2) Preparar variáveis do Dynatrace
+```bash
+cp .env.example .env
+```
+Edite o arquivo `.env` e preencha:
 ```bash
 DT_ENV_URL="https://<tenant>.live.dynatrace.com"
 DT_LOG_TOKEN="<api-token-com-log-ingest>"
 ```
 
-### 3. Subir ambiente
-Se estiver usando **docker**:
+### 3) Subir os serviços (escolha UMA das opções)
+
+**Opção A: Docker**
 ```bash
 docker compose up -d --build
 ```
 
-Se estiver usando **podman**:
+**Opção B: Podman (recomendado em RHEL 10)**
 ```bash
 podman-compose up -d --build
 ```
 
-### 4. Testar aplicações
-- **Legacy App** → [http://localhost:8081](http://localhost:8081)  
-  - `POST /generate-log` → gera um log não estruturado.  
-  - `GET /metrics` → expõe métricas.  
+### 4) Verificar
+```bash
+curl -X POST http://localhost:8081/generate-log
+curl -X POST http://localhost:8080/order
+```
 
-- **Modern App** → [http://localhost:8080/order](http://localhost:8080/order)  
-  - Gera pedido e log estruturado.  
-  - Correlação log ↔ trace via OTEL.  
-  - `GET /metrics` → expõe métricas.  
+### 5) Testar aplicações
+- **Legacy App** → <http://localhost:8081>  
+  - `POST /generate-log` → gera um log não estruturado  
+  - `GET /metrics` → expõe métricas  
 
-### 5. Verificar ingestão de logs
-No **Dynatrace Grail → Logs**, filtre por `dataset:demo`.  
+- **Modern App** → <http://localhost:8080/order>  
+  - `POST /order` → cria pedido e log estruturado  
+  - `GET /metrics` → expõe métricas
+
+### 6) Conferir ingestão no Dynatrace
+No **Dynatrace → Grail → Logs**, filtre por:
+```
+dataset:demo
+```
+Ou via DQL:
+```sql
+fetch logs
+| filter dataset == "demo"
+```
 
 ---
 
-## Exemplos de uso
+## Exemplos de uso via curl
 
-Depois de subir o ambiente com `podman-compose up -d --build` (ou `docker compose up -d --build`), é possível gerar logs diretamente via **curl**:
-
-### Legacy App (logs não estruturados)
-Gerar log manual:
+**Legacy App (logs não estruturados)**
 ```bash
 curl -X POST http://localhost:8081/generate-log
 ```
@@ -130,10 +141,7 @@ Exemplo de resposta:
 }
 ```
 
----
-
-### Modern App (logs estruturados + OTEL)
-Criar um pedido:
+**Modern App (logs estruturados + OTEL)**
 ```bash
 curl -X POST http://localhost:8080/order
 ```
@@ -144,10 +152,28 @@ Order 802166 processed: 71 BRL
 
 ---
 
+## Encerrar / resetar
+
+**Parar serviços**
+```bash
+docker compose down            # Docker
+# ou
+podman-compose down            # Podman
+```
+
+**Remover volumes (reset total da demo)**
+```bash
+docker compose down -v         # Docker
+# ou
+podman-compose down -v         # Podman
+```
+
+---
+
 ## Cenários de Observabilidade demonstrados
 
 1. **Normalização de logs não estruturados**  
-   - Exemplo: `"Payment failed for order"` → `severity=ERROR`, `loglevel=ERROR`.  
+   - Ex.: `"Payment failed for order"` → `severity=ERROR`, `loglevel=ERROR`.  
 
 2. **Correlação de logs estruturados e traces**  
    - Modern App inclui `trace_id`, `span_id` e `service.name`.  
@@ -157,14 +183,13 @@ Order 802166 processed: 71 BRL
 
 ---
 
-## 🔮 Próximos passos
+## Próximos passos
 
-- Expandir cenários para incluir **business observability** (KPIs de pedidos, falhas de pagamento etc. como logs/metrics).  
 - Explorar ingestão direta via OTEL → Dynatrace Logs.  
-- Incluir **dashboards comparativos** entre backends observáveis.  
+- Incluir **dashboards comparativos** entre outras soluções, além do Dynatrace. 
 
 ---
 
-## 📜 Licença
+## Licença
 
 Este projeto está licenciado sob a [MIT License](./LICENSE).  
