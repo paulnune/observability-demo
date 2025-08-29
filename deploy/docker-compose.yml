@@ -34,11 +34,11 @@ services:
     ports:
       - "2020:2020"
     volumes:
-      - ../agents/fluentbit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
-      - ../agents/fluentbit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
-      - ../agents/fluentbit/normalize_severity.lua:/fluent-bit/etc/normalize_severity.lua:ro
-      - ../agents/fluentbit/classify_by_message.lua:/fluent-bit/etc/classify_by_message.lua:ro
-      - ../agents/fluentbit/to_dynatrace.lua:/fluent-bit/etc/to_dynatrace.lua:ro
+      - ../agents/fluentbit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,Z
+      - ../agents/fluentbit/parsers.conf:/fluent-bit/etc/parsers.conf:ro,Z
+      - ../agents/fluentbit/normalize_severity.lua:/fluent-bit/etc/normalize_severity.lua:ro,Z
+      - ../agents/fluentbit/classify_by_message.lua:/fluent-bit/etc/classify_by_message.lua:ro,Z
+      - ../agents/fluentbit/to_dynatrace.lua:/fluent-bit/etc/to_dynatrace.lua:ro,Z
       - legacy-app-logs:/var/log/legacy-app
       - modern-app-logs:/var/log/modern-app
     environment:
@@ -55,11 +55,11 @@ services:
     image: otel/opentelemetry-collector-contrib:0.104.0
     command: ["--config=/etc/otel/config.yaml"]
     ports:
-      - "4317:4317" 
-      - "4318:4318" 
-      - "24224:24224" 
+      - "4317:4317"
+      - "4318:4318"
+      - "24224:24224"
     volumes:
-      - ../agents/otel-collector/config.yaml:/etc/otel/config.yaml:ro
+      - ../agents/otel-collector/config.yaml:/etc/otel/config.yaml:ro,Z
     environment:
       - DT_API_TOKEN=${DYNATRACE_API_TOKEN}
       - DT_ENVIRONMENT=${DYNATRACE_ENV_URL}
