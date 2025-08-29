@@ -1,4 +1,5 @@
 services:
+
   legacy-app:
     container_name: legacy-app
     build:
@@ -42,8 +43,8 @@ services:
       - legacy-app-logs:/var/log/legacy-app
       - modern-app-logs:/var/log/modern-app
     environment:
-      - DT_ENV_URL=${DYNATRACE_ENV_URL}
-      - DT_LOG_TOKEN=${DYNATRACE_API_TOKEN}
+      - DYNATRACE_INGEST_HOST=${DYNATRACE_INGEST_HOST}
+      - DYNATRACE_API_TOKEN=${DYNATRACE_API_TOKEN}
     depends_on:
       - legacy-app
       - modern-app
