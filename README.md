@@ -7,14 +7,12 @@ A demo cobre **dois cenários de aplicações** (legado e moderno), agentes de c
 Além disso, foram criados **Notebooks de Business Observability** no Dynatrace, disponíveis em dois formatos:  
 
 - [Business Observability – Demo (DQL Input Visible)](https://szn23895.apps.dynatrace.com/ui/document/v0/#share=e89885fe-1849-4b22-878d-fa4d578d8aa7)  
-  
 - [Business Observability – Demo (DQL Input Hidden)](https://szn23895.apps.dynatrace.com/ui/document/v0/#share=54b0d423-4beb-4957-9715-376ca2c1cc1d)  
 
 Também é possível visualizar as versões em PDF exportadas, localizadas no diretório [`files/`](./files):  
 
-- [`BusinessObservability-Demo-Visible.pdf`](/files/Business%20Observability%20–%20Demo%20(DQL%20Input%20Visible).pdf)
-  
-- [`BusinessObservability-Demo-Hidden.pdf`](/files/Business%20Observability%20–%20Demo%20(DQL%20Input%20Hidden).pdf)
+- [`BusinessObservability-Demo-Visible.pdf`](/files/Business%20Observability%20–%20Demo%20(DQL%20Input%20Visible).pdf)  
+- [`BusinessObservability-Demo-Hidden.pdf`](/files/Business%20Observability%20–%20Demo%20(DQL%20Input%20Hidden).pdf)  
 
 ---
 
@@ -55,16 +53,26 @@ Também é possível visualizar as versões em PDF exportadas, localizadas no di
 │   ├── legacy-app       # Python Flask (logs não estruturados)
 │   └── modern-app       # Go + OTEL (logs estruturados + traces)
 └── deploy
-    └── docker-compose.yml  # Orquestração local
+    └── docker-compose.yml  # Orquestração local (compatível com podman-compose)
 ```
 
 ---
 
+## Pré-requisitos:  
+
+- Docker & Docker Compose
+- Conta no Dynatrace
+  - Variáveis de ambiente definidas no `.env` (Dynatrace tenant e token). 
+
 ## Como executar
 
-Pré-requisitos:  
-- Docker + Docker Compose  
-- Variáveis de ambiente definidas no `.env` (Dynatrace tenant e token)  
+Renomear e preecher o arquivo `.env.example` para `.env` e incluir a URL e token do Dynatrace. 
+
+### Compatibilidade
+
+Esta demo foi executada em um ambiente **RHEL 10** utilizando **Podman** com o pacote **`podman-docker`** (que emula o CLI do Docker) e **`podman-compose`**.  
+
+---
 
 ### 1. Clonar repositório
 ```bash
@@ -80,8 +88,14 @@ DT_LOG_TOKEN="<api-token-com-log-ingest>"
 ```
 
 ### 3. Subir ambiente
+Se estiver usando **docker**:
 ```bash
 docker compose up -d --build
+```
+
+Se estiver usando **podman**:
+```bash
+podman-compose up -d --build
 ```
 
 ### 4. Testar aplicações
@@ -97,17 +111,15 @@ docker compose up -d --build
 ### 5. Verificar ingestão de logs
 No **Dynatrace Grail → Logs**, filtre por `dataset:demo`.  
 
-![alt text](/files/image.png)
-
 ---
 
 ## Exemplos de uso
 
-Depois de subir o ambiente com `docker compose up -d --build`, é possível gerar logs diretamente via **curl**:
+Depois de subir o ambiente com `podman-compose up -d --build` (ou `docker compose up -d --build`), é possível gerar logs diretamente via **curl**:
 
 ### Legacy App (logs não estruturados)
 Gerar log manual:
-```powershell
+```bash
 curl -X POST http://localhost:8081/generate-log
 ```
 Exemplo de resposta:
@@ -118,28 +130,16 @@ Exemplo de resposta:
 }
 ```
 
-Esse log será **parseado pelo Fluent Bit**, normalizado e classificado (`severity=WARN`, `loglevel=WARN`) antes de ser enviado ao Dynatrace.
-
 ---
 
 ### Modern App (logs estruturados + OTEL)
 Criar um pedido:
-```powershell
+```bash
 curl -X POST http://localhost:8080/order
 ```
 Exemplo de resposta:
 ```
 Order 802166 processed: 71 BRL
-```
-
-Esse evento gera um log estruturado já com `trace_id`, `span_id` e `service.name`, permitindo **correlação direta log ↔ trace**.
-
----
-
-Para verificar no Dynatrace, filtre os logs em **Grail → Logs** usando:  
-```sql
-fetch logs
-| filter dataset == "demo"
 ```
 
 ---
@@ -161,7 +161,7 @@ fetch logs
 
 - Expandir cenários para incluir **business observability** (KPIs de pedidos, falhas de pagamento etc. como logs/metrics).  
 - Explorar ingestão direta via OTEL → Dynatrace Logs.  
-- Incluir **dashboards comparativos** entre backends observáveis.
+- Incluir **dashboards comparativos** entre backends observáveis.  
 
 ---
 
