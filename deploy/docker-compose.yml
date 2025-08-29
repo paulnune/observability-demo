@@ -42,8 +42,8 @@ services:
       - legacy-app-logs:/var/log/legacy-app
       - modern-app-logs:/var/log/modern-app
     environment:
-      - DT_ENV_URL=${DT_ENV_URL}
-      - DT_LOG_TOKEN=${DT_LOG_TOKEN}
+      - DT_ENV_URL=${DYNATRACE_ENV_URL}
+      - DT_LOG_TOKEN=${DYNATRACE_API_TOKEN}
     depends_on:
       - legacy-app
       - modern-app
